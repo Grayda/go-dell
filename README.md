@@ -22,6 +22,52 @@ Simply import `github.com/Grayda/go-dell`, then call `dell.Init()` to prepare, `
 
 See `tests/main.go` for a full example
 
+List of available commands
+==========================
+
+Commands are accessed like so: `dell.Commands.Input.USBViewer`
+
+Input
+	VGAA
+	VGAB
+	Composite  
+	SVideo
+	HDMI
+	Wireless
+	USBDisplay
+	USBViewer  
+
+Volume
+	Up
+	Down
+	Mute
+	Unmute
+
+Power
+	On  
+	Off
+
+Menu
+	Menu  
+	Up
+	Down  
+	Left  
+	Right
+	OK
+
+Picture
+	Mute
+	Unmute
+	Freeze
+	Unfreeze
+	Contrast
+		Up
+		Down
+
+	Brightness
+		Up
+		Down
+
 Supporting development
 ======================
 
