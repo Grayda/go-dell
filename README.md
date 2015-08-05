@@ -27,46 +27,46 @@ List of available commands
 
 Commands are accessed like so: `dell.Commands.Input.USBViewer`
 
-Input
-	VGAA
-	VGAB
-	Composite  
-	SVideo
-	HDMI
-	Wireless
-	USBDisplay
-	USBViewer  
+ * Input
+    * VGAA
+    * VGAB
+    * Composite  
+    * SVideo
+    * HDMI
+    * Wireless
+    * USBDisplay
+    * USBViewer  
 
-Volume
-	Up
-	Down
-	Mute
-	Unmute
+ * Volume
+    * Up
+    * Down
+    * Mute
+    * Unmute
 
-Power
-	On  
-	Off
+ * Power
+    * On  
+    * Off
 
-Menu
-	Menu  
-	Up
-	Down  
-	Left  
-	Right
-	OK
+ * Menu
+    * Menu  
+    * Up
+    * Down  
+    * Left  
+    * Right
+    * OK
 
-Picture
-	Mute
-	Unmute
-	Freeze
-	Unfreeze
-	Contrast
-		Up
-		Down
+ * Picture
+    * Mute
+    * Unmute
+    * Freeze
+    * Unfreeze
+    * Contrast
+      * Up
+      * Down
 
-	Brightness
-		Up
-		Down
+    * Brightness
+      * Up
+      * Down
 
 Supporting development
 ======================
