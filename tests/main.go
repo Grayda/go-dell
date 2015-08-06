@@ -22,8 +22,11 @@ func main() {
 		case msg := <-dell.Events:
 			switch msg.Name {
 			case "ready":
-				dell.Listen()
-				ready = true
+				fmt.Println("Ready to go!")
+				_, err = dell.Listen()
+				if err != nil {
+					fmt.Println(err)
+				}
 			case "projectorfound":
 				_, err = dell.AddProjector(msg.ProjectorInfo)
 				if err != nil {
@@ -56,9 +59,7 @@ func main() {
 				fmt.Println("Turning the projector off..")
 				dell.SendCommand(msg.ProjectorInfo, dell.Commands.Power.Off)
 			default:
-				if ready == true {
-					dell.ReadUDP()
-				}
+
 			}
 		}
 	}

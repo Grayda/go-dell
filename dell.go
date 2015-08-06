@@ -7,6 +7,8 @@ import (
 	"net"
 	"regexp"
 	"strings"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 // EventStruct is our equivalent to node.js's Emitters, of sorts.
@@ -149,7 +151,7 @@ func Init() (bool, error) {
 func Listen() (bool, error) {
 	var err error
 	// Resolve our address, ready for listening. We're listening on port 55386
-	udpAddr, err = net.ResolveUDPAddr("udp4", ":9131") // Get our address ready for listening
+	udpAddr, err = net.ResolveUDPAddr("udp4", "239.255.250.250:9131") // Get our address ready for listening
 	if err != nil {
 		// Errors. Errors everywhere.
 		return false, err
@@ -222,8 +224,7 @@ func ReadUDP() (bool, error) { // Now we're checking for messages
 	var err error
 
 	n, addr, err := udpConn.ReadFromUDP(buf[0:]) // Read 1024 bytes from the buffer
-
-	fmt.Println("OK")
+	fmt.Println("O===K")
 	if n > 0 { // If we've got more than 0 bytes and it's not from us
 
 		msg = buf[0:n]
@@ -234,13 +235,15 @@ func ReadUDP() (bool, error) { // Now we're checking for messages
 			// Regex was forged by Lucifer himself. If you can craft a better regex to search for what we need, FOR THE LOVE OF GO, CREATE A PULL REQUEST!
 			// To break this down: We start by looking for UUID=, then make a named group called UUID, which holds the contents of whatever comes after UUID=, up until the closing >
 			// We then repeat this for Make, Model and SDKClass. Finally, g makes it global so it won't stop after finding the first match
-			r, _ := regexp.Compile("/UUID=(?P<UUID>(.*?))>|Make=(?P<Make>(.*?))>|Model=(?P<Model>(.*?))>|SDKClass=(?P<SDKClass>(.*?))>/g")
+			r, _ := regexp.Compile("UUID=(?P<UUID>(.*?))>|Make=(?P<Make>(.*?))>|Model=(?P<Model>(.*?))>|SDKClass=(?P<SDKClass>(.*?))>")
 
-			match := r.FindStringSubmatch(string(msg))
+			match := r.FindAllStringSubmatch(string(msg), -1)
 			result := make(map[string]string)
-			for i, name := range r.SubexpNames() {
-				result[name] = match[i]
-			}
+			spew.Dump(match)
+			// for i, name := range r.SubexpNames() {
+			//
+			// 	result[name] = match[i]
+			// }
 
 			// (this lets us check to see if we have this printer in our list)
 			_, ok := Projectors[result["UUID"]]
@@ -259,7 +262,7 @@ func ReadUDP() (bool, error) { // Now we're checking for messages
 				passMessage("projectorfound", Projectors[result["UUID"]])
 
 			} else {
-
+				ReadUDP()
 			}
 		}
 
