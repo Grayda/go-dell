@@ -2,43 +2,65 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/Grayda/go-dell"
 )
 
+var ready bool
+
 func main() {
+	fmt.Println("Preparing commands..")
 	_, err := dell.Init()
 	if err != nil {
 		fmt.Println("Error!", err)
 	}
 
-	_, err = dell.AddProjector("demo", "192.168.1.2")
-	if err != nil {
-		fmt.Println("Error connecting to printer:", err)
+	for { // Loop forever
+		select { // This lets us do non-blocking channel reads. If we have a message, process it. If not, check for UDP data and loop
+		case msg := <-dell.Events:
+			switch msg.Name {
+			case "ready":
+				dell.Listen()
+				ready = true
+			case "projectorfound":
+				_, err = dell.AddProjector(msg.ProjectorInfo)
+				if err != nil {
+					fmt.Println("Error connecting to printer:", err)
+					os.Exit(1)
+				}
+			case "listening":
+				fmt.Println("YES!!")
+			case "projectoradded":
+				fmt.Println("Sending command to turn on the projector..")
+				dell.SendCommand(msg.ProjectorInfo, dell.Commands.Power.On)
+				fmt.Println("Waiting 30 seconds for the projector to turn on..")
+				time.Sleep(time.Second * 30)
+
+				fmt.Println("Sending command to set input to VGA A..")
+				dell.SendCommand(msg.ProjectorInfo, dell.Commands.Input.VGAA)
+				fmt.Println("Waiting 3 seconds for the input to change..")
+				time.Sleep(time.Second * 3)
+
+				fmt.Println("Sending command to set input to VGA B..")
+				dell.SendCommand(msg.ProjectorInfo, dell.Commands.Input.VGAB)
+				fmt.Println("Waiting 3 seconds for the input to change..")
+				time.Sleep(time.Second * 3)
+
+				fmt.Println("Sending command to set input to HDMI..")
+				dell.SendCommand(msg.ProjectorInfo, dell.Commands.Input.HDMI)
+				fmt.Println("Waiting 3 seconds for the input to change..")
+				time.Sleep(time.Second * 3)
+
+				fmt.Println("Turning the projector off..")
+				dell.SendCommand(msg.ProjectorInfo, dell.Commands.Power.Off)
+			default:
+				if ready == true {
+					dell.ReadUDP()
+				}
+			}
+		}
 	}
-
-	fmt.Println("Sending command to turn on the projector..")
-	dell.SendCommand(dell.Projectors["demo"], dell.Commands.Power.On)
-	fmt.Println("Waiting 30 seconds for the projector to turn on..")
-	time.Sleep(time.Second * 30)
-
-	fmt.Println("Sending command to set input to VGA A..")
-	dell.SendCommand(dell.Projectors["demo"], dell.Commands.Input.VGAA)
-	fmt.Println("Waiting 2 seconds for the input to change..")
-	time.Sleep(time.Second * 2)
-
-	fmt.Println("Sending command to set input to VGA B..")
-	dell.SendCommand(dell.Projectors["demo"], dell.Commands.Input.VGAB)
-	fmt.Println("Waiting 2 seconds for the input to change..")
-	time.Sleep(time.Second * 2)
-
-	fmt.Println("Sending command to set input to HDMI..")
-	dell.SendCommand(dell.Projectors["demo"], dell.Commands.Input.HDMI)
-	fmt.Println("Waiting 2 seconds for the input to change..")
-	time.Sleep(time.Second * 2)
-
-	fmt.Println("Turning the projector off..")
-	dell.SendCommand(dell.Projectors["demo"], dell.Commands.Power.Off)
 
 }
