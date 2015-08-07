@@ -18,7 +18,14 @@ Not all commands will be available on all projectors, and not all commands may w
 Usage
 =====
 
-Simply import `github.com/Grayda/go-dell`, then call `dell.Init()` to prepare, `dell.AddProjector("yourname", "192.168.1.2")` to connect to a projector, then finally `dell.SendCommand(dell.Projectors["yourname"], dell.Commands.Power.On)` to tell the projector to turn on. "yourname" can be whatever you like, as long as it's unique
+Simply import `github.com/Grayda/go-dell`, then call `dell.Init()` to prepare, `dell.Listen()` to listen for projectors via DDDP, then finally `dell.SendCommand(dell.Projectors["projectorUUID"], dell.Commands.Power.On)` to tell the projector to turn on. If you wish to add a projector manually, use this:
+
+    dell.Projectors["yourUUID"] = Projector {
+      UUID: "yourUUID",
+      Make: "Dell",
+      Model: "AB-1234",
+      IP: "192.168.1.2",
+    }
 
 See `tests/main.go` for a full example
 

@@ -7,8 +7,6 @@ import (
 	"net"
 	"regexp"
 	"strings"
-
-	"github.com/davecgh/go-spew/spew"
 )
 
 // EventStruct is our equivalent to node.js's Emitters, of sorts.
@@ -24,11 +22,12 @@ var Events = make(chan EventStruct, 1)
 
 // Projector holds information about our Projectors
 type Projector struct {
-	UUID  string
-	Model string
-	Make  string
-	Conn  net.Conn
-	IP    string
+	UUID     string
+	Model    string
+	Make     string
+	Revision string
+	Conn     net.Conn
+	IP       string
 }
 
 // Command is a struct that allows us to Unmarshal some JSON into it. This in turn allows us to use dot notation, such as: SendCommand(printer, Commands.Volume.Up)
@@ -77,7 +76,10 @@ type Command struct {
 	}
 }
 
-var commandList = []byte(`
+// CommandList is a JSON object that contains
+// the various hex codes required to control the projector
+// It's exported so that you can overwrite it if necessary
+var CommandList = []byte(`
   {
 	"Input": {
 		"Vgaa": "cd13",
@@ -130,24 +132,30 @@ var Commands Command
 // Projectors is a map that contains all of the projectors we've added
 var Projectors map[string]Projector
 
+// UDP and TCP connections for reading and writing
 var udpConn *net.UDPConn
 var udpAddr *net.UDPAddr
+
+// commandPrefix
+var commandPrefix = "05000600000300"
 
 // Init gets the ball rolling by unmarshalling our command JSON and initializing our Projectors map
 func Init() (bool, error) {
 	Projectors = make(map[string]Projector)
-	err := json.Unmarshal(commandList, &Commands)
+	err := json.Unmarshal(CommandList, &Commands)
 	if err != nil {
 		return false, err
 	}
 
+	// Tell our calling code that we're ready!
 	passMessage("ready", Projector{})
 
 	return true, nil
 
 }
 
-// Listen listens on port 2048 for projectors
+// Listen listens on port 9131 for projectors
+// TO-DO: Test this out on a different network, in case this mutlicast address is different.
 func Listen() (bool, error) {
 	var err error
 	// Resolve our address, ready for listening. We're listening on port 55386
@@ -163,9 +171,11 @@ func Listen() (bool, error) {
 		return false, err
 	}
 
+	// Because we need to be on the lookout for incoming projector discovery packets, we run
+	// this in a goroutine and loop forever
 	go func() {
 		for {
-			ReadUDP()
+			readUDP()
 		}
 	}()
 
@@ -177,17 +187,22 @@ func Listen() (bool, error) {
 // AddProjector adds a projector <name> to our Projectors list, and connects to the specified IP address
 func AddProjector(projector Projector) (bool, error) {
 
+	// Does this projector already exist?
 	_, exists := Projectors[projector.UUID]
 
+	// Yes?
 	if exists == true {
+		// Return. We're not interested
 		return false, nil
 	}
 
+	// Connect to the projector
 	tmp, err := net.Dial("tcp", projector.IP+":41794")
 	if err != nil {
 		fmt.Println(err)
 	}
 
+	// Add the projector to our list.
 	Projectors[projector.UUID] = Projector{
 		Make:  projector.Make,
 		Model: projector.Model,
@@ -203,19 +218,27 @@ func AddProjector(projector Projector) (bool, error) {
 // RemoveProjector does what it says on the tin: Removes a projector from our list (after first closing the connection)
 func RemoveProjector(projector Projector) (bool, error) {
 	projector.Conn.Close()
-	passMessage("projectoradded", projector)
+	passMessage("projectorremoved", projector)
 	delete(Projectors, projector.UUID)
 	return true, nil
 }
 
 // SendCommand issues a command to a projector
 func SendCommand(projector Projector, command string) (bool, error) {
-	buf, _ := hex.DecodeString("05000600000300" + command)
+	buf, _ := hex.DecodeString(commandPrefix + command)
 	_, _ = projector.Conn.Write(buf)
+	passMessage("commandsent", projector)
 	return true, nil
 }
 
-func ReadUDP() (bool, error) { // Now we're checking for messages
+// SendRaw sends raw data
+func SendRaw(msg string, projector Projector) {
+	buf, _ := hex.DecodeString(msg)
+	_, _ = projector.Conn.Write(buf)
+
+}
+
+func readUDP() (bool, error) { // Now we're checking for messages
 
 	var msg []byte     // Holds the incoming message
 	var buf [1024]byte // We want to get 1024 bytes of messages (is this enough? Need to check!)
@@ -224,23 +247,27 @@ func ReadUDP() (bool, error) { // Now we're checking for messages
 	var err error
 
 	n, addr, err := udpConn.ReadFromUDP(buf[0:]) // Read 1024 bytes from the buffer
-	fmt.Println("O===K")
+
 	if n > 0 { // If we've got more than 0 bytes and it's not from us
 
 		msg = buf[0:n]
-		fmt.Println(string(msg))
+
 		// If our message is an AMXB message (a.k.a DDDP, a.k.a Dynamic Device Discovery Protocol)
 		if strings.Contains(string(msg), "VideoProjector") {
 
 			// Regex was forged by Lucifer himself. If you can craft a better regex to search for what we need, FOR THE LOVE OF GO, CREATE A PULL REQUEST!
 			// To break this down: We start by looking for UUID=, then make a named group called UUID, which holds the contents of whatever comes after UUID=, up until the closing >
 			// We then repeat this for Make, Model and SDKClass. Finally, g makes it global so it won't stop after finding the first match
-			r, _ := regexp.Compile("UUID=(?P<UUID>(.*?))>|Make=(?P<Make>(.*?))>|Model=(?P<Model>(.*?))>|SDKClass=(?P<SDKClass>(.*?))>")
+			r, _ := regexp.Compile("<-([^=]+)=([^>]+)>")
 
-			match := r.FindAllStringSubmatch(string(msg), -1)
+			match := r.FindAllString(string(msg), -1)
 			result := make(map[string]string)
-			spew.Dump(match)
-			// for i, name := range r.SubexpNames() {
+
+			for _, p := range match {
+				split := strings.Split(p, "=")
+
+				result[split[0]] = split[1]
+			}
 			//
 			// 	result[name] = match[i]
 			// }
@@ -250,19 +277,20 @@ func ReadUDP() (bool, error) { // Now we're checking for messages
 
 			// And if this printer isn't in our list
 			if ok != true {
-				fmt.Println("Adding new projector. UUID is " + result["UUID"] + ", Model is " + result["Model"] + ", Make is " + result["Make"] + " and IP is " + addr.IP.String())
+				//	fmt.Println("Adding new projector. UUID is " + result["UUID"] + ", Model is " + result["Model"] + ", Make is " + result["Make"] + " and IP is " + addr.IP.String())
 				// Add it. The key will be the printer name, the value, a Printer struct
-				Projectors[result["UUID"]] = Projector{
-					UUID:  result["UUID"],
-					Model: result["Model"],
-					Make:  result["Make"],
-					IP:    addr.IP.String(),
+				tmp := Projector{
+					UUID:     result["UUID"],
+					Model:    result["Model"],
+					Make:     result["Make"],
+					Revision: result["Revision"],
+					IP:       addr.IP.String(),
 				}
 
-				passMessage("projectorfound", Projectors[result["UUID"]])
+				passMessage("projectorfound", tmp)
 
 			} else {
-				ReadUDP()
+
 			}
 		}
 
