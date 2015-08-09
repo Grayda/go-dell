@@ -22,12 +22,19 @@ var Events = make(chan EventStruct, 1)
 
 // Projector holds information about our Projectors
 type Projector struct {
-	UUID     string
-	Model    string
-	Make     string
-	Revision string
-	Conn     net.Conn
-	IP       string
+	UUID         string
+	Model        string
+	Make         string
+	Revision     string
+	PowerState   bool
+	VolumeMuted  bool
+	Volume       int
+	PictureMuted bool
+	Frozen       bool
+	Contrast     int
+	Brightness   int
+	Conn         net.Conn
+	IP           string
 }
 
 // Command is a struct that allows us to Unmarshal some JSON into it. This in turn allows us to use dot notation, such as: SendCommand(printer, Commands.Volume.Up)
@@ -204,6 +211,7 @@ func AddProjector(projector Projector) (bool, error) {
 
 	// Add the projector to our list.
 	Projectors[projector.UUID] = Projector{
+		UUID:  projector.UUID,
 		Make:  projector.Make,
 		Model: projector.Model,
 		IP:    projector.IP,
@@ -225,6 +233,7 @@ func RemoveProjector(projector Projector) (bool, error) {
 
 // SendCommand issues a command to a projector
 func SendCommand(projector Projector, command string) (bool, error) {
+	fmt.Println("Sending Message to", projector.IP, ":", commandPrefix+command)
 	buf, _ := hex.DecodeString(commandPrefix + command)
 	_, _ = projector.Conn.Write(buf)
 	passMessage("commandsent", projector)
@@ -254,19 +263,17 @@ func readUDP() (bool, error) { // Now we're checking for messages
 
 		// If our message is an AMXB message (a.k.a DDDP, a.k.a Dynamic Device Discovery Protocol)
 		if strings.Contains(string(msg), "VideoProjector") {
-
+			fmt.Println(string(msg))
 			// Regex was forged by Lucifer himself. If you can craft a better regex to search for what we need, FOR THE LOVE OF GO, CREATE A PULL REQUEST!
 			// To break this down: We start by looking for UUID=, then make a named group called UUID, which holds the contents of whatever comes after UUID=, up until the closing >
 			// We then repeat this for Make, Model and SDKClass. Finally, g makes it global so it won't stop after finding the first match
 			r, _ := regexp.Compile("<-([^=]+)=([^>]+)>")
 
-			match := r.FindAllString(string(msg), -1)
 			result := make(map[string]string)
 
-			for _, p := range match {
-				split := strings.Split(p, "=")
+			for _, p := range r.FindAllStringSubmatch(string(msg), -1) {
 
-				result[split[0]] = split[1]
+				result[p[1]] = p[2]
 			}
 			//
 			// 	result[name] = match[i]

@@ -34,7 +34,7 @@ func main() {
 					fmt.Println("Error connecting to printer:", err)
 					os.Exit(1)
 				}
-				fmt.Println("Projector was found at "+msg.ProjectorInfo.IP+". Make: "+msg.ProjectorInfo.Make+". Model:"+msg.ProjectorInfo.Model, ". Revision:"+msg.ProjectorInfo.Revision)
+				fmt.Println("Projector was found at " + msg.ProjectorInfo.IP + ". Make: " + msg.ProjectorInfo.Make + ". Model:" + msg.ProjectorInfo.Model + ". Revision:" + msg.ProjectorInfo.Revision)
 			case "listening":
 				fmt.Println("Listening for projectors via DDDP")
 			case "projectoradded":
