@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/Grayda/go-dell"
 )
@@ -63,12 +64,16 @@ func main() {
 				// time.Sleep(time.Second * 3)
 				//
 				// fmt.Println("Sending command to set input to HDMI..")
-				dell.SendCommand(msg.ProjectorInfo, dell.Commands.Input.HDMI)
+
 				// fmt.Println("Waiting 3 seconds for the input to change..")
 				// time.Sleep(time.Second * 3)
 				//
 				// fmt.Println("Turning the projector off..")
-				dell.GetStatus(msg.ProjectorInfo)
+				for {
+					dell.GetStatus(msg.ProjectorInfo)
+					time.Sleep(time.Second * 10)
+				}
+
 			default:
 
 			}

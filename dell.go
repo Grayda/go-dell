@@ -374,23 +374,22 @@ func GetStatus(projector Projector) {
 }
 
 func handleMessage(msg string, projector Projector) {
-	if len(msg) < 500 {
+	fmt.Println(msg)
+	// Because I can't reliably detect the large packet yet (perhaps by the last values?), messages > 500 bytes are considered information packets
+	if len(msg) > 500 {
+		// Each section is split up by 03
+		parts := strings.SplitAfter(msg, "03")
+		// Go through the parts of the message
+		for _, p := range parts {
+			// If the part is longer than 5 bytes, we're interested
 
-		return
-	}
-	parts := strings.SplitAfter(msg, "03")
-
-	for _, p := range parts {
-		if len(p) > 5 {
-
-			lastPart := p[len(p)-4:]
-
-			switch lastPart {
-			case "b403": // MAC Address (a.k.a UUID)
+			switch {
+			case strings.Contains(p, "b403"): // MAC Address (a.k.a UUID)
 				fmt.Println("MAC:", p[0:len(p)-4])
-			case "8a03": // Power status
-				fmt.Println("IS: " + p)
-				if strings.HasPrefix(p, "4f6c") { // 4f6c = "On"
+			case strings.Contains(p, "af03"):
+				fmt.Println("Found input:", p)
+			case strings.Contains(p, "8a03"): // Power status
+				if strings.HasPrefix(p, "4f6e") || strings.HasPrefix(p, "0500") { // 4f6e = "On"
 					fmt.Println("Projector is on")
 					projector.PowerState = true
 				} else if strings.HasPrefix(p, "5374616e646279") {
