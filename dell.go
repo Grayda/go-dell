@@ -4,9 +4,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // EventStruct is our equivalent to node.js's Emitters, of sorts.
@@ -22,19 +25,26 @@ var Events = make(chan EventStruct, 1)
 
 // Projector holds information about our Projectors
 type Projector struct {
-	UUID         string
-	Model        string
-	Make         string
-	Revision     string
+	Conn     net.Conn
+	IP       string
+	Name     string
+	UUID     string // AKA MAC Address
+	Model    string
+	Make     string
+	Revision string
+	// Properties
 	PowerState   bool
 	VolumeMuted  bool
-	Volume       int
 	PictureMuted bool
 	Frozen       bool
+	Volume       int
 	Contrast     int
 	Brightness   int
-	Conn         net.Conn
-	IP           string
+	Location     string
+	Resolution   string
+	LampHours    string
+	Error        string
+	Source       string
 }
 
 // Command is a struct that allows us to Unmarshal some JSON into it. This in turn allows us to use dot notation, such as: SendCommand(printer, Commands.Volume.Up)
@@ -88,6 +98,9 @@ type Command struct {
 // It's exported so that you can overwrite it if necessary
 var CommandList = []byte(`
   {
+	"Projector": {
+  	"GetStatus": "050005000002031e"
+	},
 	"Input": {
 		"Vgaa": "cd13",
 		"Vgab": "ce13",
@@ -178,15 +191,18 @@ func Listen() (bool, error) {
 		return false, err
 	}
 
+	passMessage("listening", Projector{})
 	// Because we need to be on the lookout for incoming projector discovery packets, we run
 	// this in a goroutine and loop forever
-	go func() {
-		for {
-			readUDP()
-		}
-	}()
 
-	passMessage("listening", Projector{})
+	for {
+
+		readUDP()
+		// for _, p := range Projectors {
+		// 	go readTCP(p)
+		// }
+
+	}
 
 	return true, nil
 }
@@ -220,6 +236,15 @@ func AddProjector(projector Projector) (bool, error) {
 
 	passMessage("projectoradded", Projectors[projector.UUID])
 
+	go func() {
+		for {
+			readTCP(Projectors[projector.UUID])
+			if isDisconnected(Projectors[projector.UUID]) {
+				RemoveProjector(Projectors[projector.UUID])
+			}
+		}
+	}()
+
 	return true, nil
 }
 
@@ -234,8 +259,7 @@ func RemoveProjector(projector Projector) (bool, error) {
 // SendCommand issues a command to a projector
 func SendCommand(projector Projector, command string) (bool, error) {
 	fmt.Println("Sending Message to", projector.IP, ":", commandPrefix+command)
-	buf, _ := hex.DecodeString(commandPrefix + command)
-	_, _ = projector.Conn.Write(buf)
+	SendRaw(commandPrefix+command, projector)
 	passMessage("commandsent", projector)
 	return true, nil
 }
@@ -249,17 +273,21 @@ func SendRaw(msg string, projector Projector) {
 
 func readUDP() (bool, error) { // Now we're checking for messages
 
-	var msg []byte     // Holds the incoming message
-	var buf [1024]byte // We want to get 1024 bytes of messages (is this enough? Need to check!)
+	var msg []byte // Holds the incoming message
+	buf := make([]byte, 1024)
 
 	var success bool
 	var err error
 
-	n, addr, err := udpConn.ReadFromUDP(buf[0:]) // Read 1024 bytes from the buffer
-
+	n, addr, err := udpConn.ReadFromUDP(buf[:]) // Read 1024 bytes from the buffer
+	buf2 := buf[:n]
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	if n > 0 { // If we've got more than 0 bytes and it's not from us
-
-		msg = buf[0:n]
+		fmt.Println("MES!")
+		msg = buf2[0:n]
 
 		// If our message is an AMXB message (a.k.a DDDP, a.k.a Dynamic Device Discovery Protocol)
 		if strings.Contains(string(msg), "VideoProjector") {
@@ -300,11 +328,94 @@ func readUDP() (bool, error) { // Now we're checking for messages
 
 			}
 		}
-
+		fmt.Println("OK")
 		msg = nil // Clear out our msg property so we don't run handleMessage on old data
+
 	}
 
 	return success, err
+}
+
+func readTCP(projector Projector) (bool, error) { // Now we're checking for messages
+
+	buf := make([]byte, 4098)
+
+	var success bool
+	var err error
+
+	n, err := projector.Conn.Read(buf) // Read 1024 bytes from the buffer
+
+	buf2 := buf[:n]
+	if err != nil && n > 0 {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	if n > 0 { // If we've got more than 0 bytes and it's not from us
+
+		msg := hex.EncodeToString(buf2)
+
+		handleMessage(msg, projector)
+
+		// fmt.Println(string("Message!: "), msg, n)
+		// 050005000002031d
+
+		// If our message is an AMXB message (a.k.a DDDP, a.k.a Dynamic Device Discovery Protocol)
+
+		msg = "" // Clear out our msg property so we don't run handleMessage on old data
+	}
+
+	return success, err
+}
+
+// GetStatus asks the projector for everything it knows. It's returned as a DCE/RPC packet
+func GetStatus(projector Projector) {
+	SendRaw("050005000002031e", projector)
+
+}
+
+func handleMessage(msg string, projector Projector) {
+	if len(msg) < 500 {
+
+		return
+	}
+	parts := strings.SplitAfter(msg, "03")
+
+	for _, p := range parts {
+		if len(p) > 5 {
+
+			lastPart := p[len(p)-4:]
+
+			switch lastPart {
+			case "b403": // MAC Address (a.k.a UUID)
+				fmt.Println("MAC:", p[0:len(p)-4])
+			case "8a03": // Power status
+				fmt.Println("IS: " + p)
+				if strings.HasPrefix(p, "4f6c") { // 4f6c = "On"
+					fmt.Println("Projector is on")
+					projector.PowerState = true
+				} else if strings.HasPrefix(p, "5374616e646279") {
+					fmt.Println("Projector is in standby")
+					projector.PowerState = false
+				} else {
+					fmt.Println("Projector is off")
+					projector.PowerState = false
+				}
+			}
+		}
+	}
+}
+
+func isDisconnected(projector Projector) bool {
+	fmt.Println("Checking for disconnection")
+	one := make([]byte, 1)
+	projector.Conn.SetReadDeadline(time.Now())
+	if _, err := projector.Conn.Read(one); err == io.EOF {
+		projector.Conn.SetReadDeadline(time.Time{})
+		return true
+	} else {
+		projector.Conn.SetReadDeadline(time.Time{})
+		return false
+	}
 }
 
 // passMessage adds items to our Events channel so the calling code can be informed
