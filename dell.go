@@ -47,7 +47,7 @@ type Projector struct {
 	Source       string
 }
 
-// Command is a struct that allows us to Unmarshal some JSON into it. This in turn allows us to use dot notation, such as: SendCommand(printer, Commands.Volume.Up)
+// Command is a struct that allows us to Unmarshal some JSON into it. This in turn allows us to use dot notation, such as: SendCommand(printer, dell.Commands.Volume.Up)
 type Command struct {
 	Input struct {
 		VGAA       string
@@ -146,6 +146,26 @@ var CommandList = []byte(`
 }
 `)
 
+// PropertyList contains a list of properties present in the DCE/RPC packet that comes back.
+// This list helps us parse the packet and extract info like lamp hours and such back from it.
+var PropertyList = []byte(`
+
+	{
+		"Power": "138a",
+		"Lamp": "138b",
+		"Input": "13af",
+		"MAC": "13b4",
+		"Name": "13ba",
+		"Assigned": "13bb"
+		"Location": "13bc",
+		"Position": "13bd",
+		"Resolution": "13be",
+		"Firmware": "13bf",
+		"InputList": "13cd"
+	}
+
+`)
+
 // Commands is a list of commands we can use
 var Commands Command
 
@@ -175,10 +195,9 @@ func Init() (bool, error) {
 }
 
 // Listen listens on port 9131 for projectors
-// TO-DO: Test this out on a different network, in case this mutlicast address is different.
 func Listen() (bool, error) {
 	var err error
-	// Resolve our address, ready for listening. We're listening on port 55386
+	// Resolve our address, ready for listening. We're listening on port 9131 on the multicast address below
 	udpAddr, err = net.ResolveUDPAddr("udp4", "239.255.250.250:9131") // Get our address ready for listening
 	if err != nil {
 		// Errors. Errors everywhere.
@@ -291,16 +310,14 @@ func readUDP() (bool, error) { // Now we're checking for messages
 
 		// If our message is an AMXB message (a.k.a DDDP, a.k.a Dynamic Device Discovery Protocol)
 		if strings.Contains(string(msg), "VideoProjector") {
-			fmt.Println(string(msg))
+
 			// Regex was forged by Lucifer himself. If you can craft a better regex to search for what we need, FOR THE LOVE OF GO, CREATE A PULL REQUEST!
 			// To break this down: We start by looking for UUID=, then make a named group called UUID, which holds the contents of whatever comes after UUID=, up until the closing >
 			// We then repeat this for Make, Model and SDKClass. Finally, g makes it global so it won't stop after finding the first match
 			r, _ := regexp.Compile("<-([^=]+)=([^>]+)>")
-
 			result := make(map[string]string)
 
 			for _, p := range r.FindAllStringSubmatch(string(msg), -1) {
-
 				result[p[1]] = p[2]
 			}
 			//
@@ -373,35 +390,50 @@ func GetStatus(projector Projector) {
 
 }
 
+// This function parses the RPC message we get back from GetStatus and updates 'projector' accordingly.
+// Each "line" from our RPC packet is separated by "03" (in hex) and the end of the readable data is separated by a "05" (again, in hex)
+// So to retrieve your data, you split the whole packet up by 03, loop through and find a line that ends with the ID you want (e.g. a line that has "13b4" at the end will contain your MAC)
+// then you split that line up by 05, and the first part is your MAC address.
+// The exception to the rule is the firmware revision, which has the ID at the START of the line. I'd check for this, but different projectors might put different properties last
 func handleMessage(msg string, projector Projector) {
-	fmt.Println(msg)
-	// Because I can't reliably detect the large packet yet (perhaps by the last values?), messages > 500 bytes are considered information packets
-	if len(msg) > 500 {
-		// Each section is split up by 03
-		parts := strings.SplitAfter(msg, "03")
-		// Go through the parts of the message
-		for _, p := range parts {
-			// If the part is longer than 5 bytes, we're interested
+	// Holds the IDs we're looking for
+	var ids map[string]string
 
-			switch {
-			case strings.Contains(p, "b403"): // MAC Address (a.k.a UUID)
-				fmt.Println("MAC:", p[0:len(p)-4])
-			case strings.Contains(p, "af03"):
-				fmt.Println("Found input:", p)
-			case strings.Contains(p, "8a03"): // Power status
-				if strings.HasPrefix(p, "4f6e") || strings.HasPrefix(p, "0500") { // 4f6e = "On"
-					fmt.Println("Projector is on")
-					projector.PowerState = true
-				} else if strings.HasPrefix(p, "5374616e646279") {
-					fmt.Println("Projector is in standby")
-					projector.PowerState = false
-				} else {
-					fmt.Println("Projector is off")
-					projector.PowerState = false
+	json.Unmarshal(PropertyList, &ids)
+
+	parts := strings.Split(msg, "03")
+	for _, p := range parts {
+		for c := range ids {
+			// "MAC": "13b4",
+			// "Input": "13af",
+			// "Power": "138a",
+			// "Name": "13ba",
+			// "Lamp": "138b",
+			// "Firmware": "13bf"
+			if strings.HasSuffix(p, ids[c]) {
+				// Now, we could use the reflect library to dynamically set these properties, but I'll try that later.
+				data := strings.Split(p, "05")[0]
+				dec, _ := hex.DecodeString(data)
+				switch ids[c] {
+				case "Input":
+					projector.Source = string(dec)
+				case "Power":
+					if string(dec) == "On" {
+						projector.PowerState = true
+					} else {
+						projector.PowerState = false
+					}
+				case "Name":
+					projector.Name = string(dec)
+				case "Lamp":
+					projector.LampHours = string(dec)
+
 				}
+
 			}
 		}
 	}
+
 }
 
 func isDisconnected(projector Projector) bool {
@@ -411,10 +443,11 @@ func isDisconnected(projector Projector) bool {
 	if _, err := projector.Conn.Read(one); err == io.EOF {
 		projector.Conn.SetReadDeadline(time.Time{})
 		return true
-	} else {
-		projector.Conn.SetReadDeadline(time.Time{})
-		return false
 	}
+
+	projector.Conn.SetReadDeadline(time.Time{})
+	return false
+
 }
 
 // passMessage adds items to our Events channel so the calling code can be informed
