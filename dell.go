@@ -24,6 +24,7 @@ type EventStruct struct {
 var Events = make(chan EventStruct, 1)
 
 // Projector holds information about our Projectors
+// Is there a neater way to do this?
 type Projector struct {
 	Conn     net.Conn
 	IP       string
@@ -98,9 +99,6 @@ type Command struct {
 // It's exported so that you can overwrite it if necessary
 var CommandList = []byte(`
   {
-	"Projector": {
-  	"GetStatus": "050005000002031e"
-	},
 	"Input": {
 		"Vgaa": "cd13",
 		"Vgab": "ce13",
@@ -160,8 +158,7 @@ var PropertyList = []byte(`
 		"Location": "13bc",
 		"Position": "13bd",
 		"Resolution": "13be",
-		"Firmware": "13bf",
-		"InputList": "13cd"
+		"Firmware": "13bf"
 	}
 
 `)
@@ -247,6 +244,7 @@ func AddProjector(projector Projector) (bool, error) {
 	// Add the projector to our list.
 	Projectors[projector.UUID] = Projector{
 		UUID:  projector.UUID,
+		Name:  projector.UUID, // Because we don't know the name yet, but we do know the UUID
 		Make:  projector.Make,
 		Model: projector.Model,
 		IP:    projector.IP,
@@ -404,12 +402,6 @@ func handleMessage(msg string, projector Projector) {
 	parts := strings.Split(msg, "03")
 	for _, p := range parts {
 		for c := range ids {
-			// "MAC": "13b4",
-			// "Input": "13af",
-			// "Power": "138a",
-			// "Name": "13ba",
-			// "Lamp": "138b",
-			// "Firmware": "13bf"
 			if strings.HasSuffix(p, ids[c]) {
 				// Now, we could use the reflect library to dynamically set these properties, but I'll try that later.
 				data := strings.Split(p, "05")[0]
@@ -425,11 +417,10 @@ func handleMessage(msg string, projector Projector) {
 					}
 				case "Name":
 					projector.Name = string(dec)
+					passMessage("namechanged", projector)
 				case "Lamp":
 					projector.LampHours = string(dec)
-
 				}
-
 			}
 		}
 	}
